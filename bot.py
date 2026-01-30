@@ -5,11 +5,11 @@ import asyncio
 import os
 
 # --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # Pune tokenul în Environment Variables
-VOICE_CHANNEL_ID = 1466767151267446953           # ID canal voice
-TIME_MULTIPLIER = 3                              # x3
-SERVER_START = datetime(2026, 6, 5, 1, 30, tzinfo=timezone.utc)  # Start FS25 la 01:30
-DAYS_PER_MONTH = 5                                # O lună FS25 = 5 zile
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
+VOICE_CHANNEL_ID = 1466767151267446953
+TIME_MULTIPLIER = 3
+SERVER_START = datetime(2026, 6, 5, 1, 30, tzinfo=timezone.utc)
+DAYS_PER_MONTH = 5
 
 LUNI = {
     1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
@@ -17,32 +17,24 @@ LUNI = {
     9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
 }
 
-# --- BOT ---
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- FUNCȚII ---
 def timp_fs25():
     now = datetime.now(timezone.utc)
-
-    # Diferența de timp în minute × TIME_MULTIPLIER
     delta = now - SERVER_START
-    total_minutes = delta.total_seconds() / 60 * TIME_MULTIPLIER
 
-    # Total zile FS25 de la start
-    total_days = int(total_minutes // (24*60))
+    # dacă suntem înainte de start, delta = 0
+    delta_minutes = max(delta.total_seconds() / 60, 0) * TIME_MULTIPLIER
 
-    # Ziua din lună FS25 (1..5)
+    # Total zile FS25
+    total_days = int(delta_minutes // (24*60))
+
     zi_luna = (1 + total_days - 1) % DAYS_PER_MONTH + 1
-
-    # Luna FS25 (începând de la IUN = 6)
     luna_index = ((6 - 1 + (total_days // DAYS_PER_MONTH)) % 12) + 1
-
-    # Anul FS25 (incrementat dacă trecem peste DEC)
     an_fs25 = 2026 + ((6 - 1 + (total_days // DAYS_PER_MONTH)) // 12)
 
-    # Ora și minutul în joc
-    minutes_in_day = total_minutes % (24*60)
+    minutes_in_day = delta_minutes % (24*60)
     ora_joc = int(minutes_in_day // 60)
     minut_joc = int(minutes_in_day % 60)
 
@@ -51,7 +43,7 @@ def timp_fs25():
 async def safe_edit_channel(channel):
     nume_nou = timp_fs25()
     if channel.name == nume_nou:
-        return  # nu schimbăm dacă e deja corect
+        return
 
     retry = 0
     while retry < 5:
@@ -60,7 +52,7 @@ async def safe_edit_channel(channel):
             print(f"✅ Canal actualizat: {nume_nou}")
             return
         except discord.HTTPException as e:
-            if e.status == 429:  # Rate limit
+            if e.status == 429:
                 retry_after = getattr(e, 'retry_after', 60)
                 print(f"⚠️ Rate-limit, reîncerc după {retry_after:.2f} secunde")
                 await asyncio.sleep(retry_after + 1)
@@ -69,7 +61,6 @@ async def safe_edit_channel(channel):
                 print(f"❌ Eroare la editarea canalului: {e}")
                 return
 
-# --- TASKS ---
 @tasks.loop(minutes=1)
 async def update_voice_name():
     canal = bot.get_channel(VOICE_CHANNEL_ID)
@@ -78,12 +69,10 @@ async def update_voice_name():
         print(f"[DEBUG] Numele calculat FS25: {nou_nume}")
         await safe_edit_channel(canal)
 
-# --- EVENIMENTE ---
 @bot.event
 async def on_ready():
     print(f"Botul este online ca {bot.user}")
     await asyncio.sleep(5)
     update_voice_name.start()
 
-# --- START BOT ---
 bot.run(DISCORD_TOKEN)
