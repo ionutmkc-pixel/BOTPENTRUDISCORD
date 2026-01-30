@@ -6,9 +6,9 @@ import asyncio
 import os
 
 # --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul tău în Environment Variables
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment Variables
 VOICE_CHANNEL_ID = 1466767151267446953          # ID canal voice
-TIME_MULTIPLIER = 3                               # ×3
+TIME_MULTIPLIER = 3                               # afișare ×3 în nume
 DAYS_PER_MONTH = 5                                # o lună FS25 = 5 zile
 START_MONTH = 6                                   # IUN
 START_YEAR = 2026
@@ -32,13 +32,13 @@ def timp_fs25():
         r = requests.get(XML_URL, timeout=5)
         root = ET.fromstring(r.content)
 
-        # preluăm dayTime în secunde
+        # preluăm dayTime în secunde direct din server
         dayTime_attr = root.attrib.get("dayTime")
         if not dayTime_attr:
             print("❌ dayTime nu există în XML")
             return "FS25 | ???"
 
-        day_seconds = int(dayTime_attr) * TIME_MULTIPLIER  # aplicăm ×3
+        day_seconds = int(dayTime_attr)  # nu aplicăm ×3 în calcul
 
         # total zile FS25
         total_days = day_seconds // 86400
@@ -57,6 +57,7 @@ def timp_fs25():
         ora_joc = int(seconds_in_day // 3600)
         minut_joc = int((seconds_in_day % 3600) // 60)
 
+        # Returnăm timpul FS25 exact + ×3 doar pentru afișare
         return f"{an_fs25} | {LUNI[luna_index]} {zi_luna} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
 
     except Exception as e:
