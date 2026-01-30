@@ -53,12 +53,16 @@ def timp_fs25():
     return f"{an_fs25} | {LUNI[luna_index]} {zi_luna} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
 
 async def safe_edit_channel(channel):
-    """Editează canalul cu retry la 429."""
+    """Editează canalul doar dacă s-a schimbat și retry la 429."""
+    nume_nou = timp_fs25()
+    if channel.name == nume_nou:
+        return  # nu schimbăm dacă e deja corect
+
     retry = 0
     while retry < 5:
         try:
-            await channel.edit(name=timp_fs25())
-            print(f"✅ Canal actualizat: {timp_fs25()}")
+            await channel.edit(name=nume_nou)
+            print(f"✅ Canal actualizat: {nume_nou}")
             return
         except discord.HTTPException as e:
             if e.status == 429:  # Rate limit
@@ -81,7 +85,7 @@ async def update_voice_name():
 @bot.event
 async def on_ready():
     print(f"Botul este online ca {bot.user}")
-    await asyncio.sleep(10)  # Delay la start pentru a evita rate-limit
+    await asyncio.sleep(20)  # Delay mai sigur la start
     update_voice_name.start()
 
 # --- START BOT ---
