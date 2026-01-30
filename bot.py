@@ -6,8 +6,8 @@ import asyncio
 import os
 
 # --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment Variables
-VOICE_CHANNEL_ID = 1466767151267446953          # ID-ul canalului voice
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul tău în Environment Variables
+VOICE_CHANNEL_ID = 1466767151267446953          # ID canal voice
 TIME_MULTIPLIER = 3                               # ×3
 DAYS_PER_MONTH = 5                                # o lună FS25 = 5 zile
 START_MONTH = 6                                   # IUN
@@ -38,7 +38,7 @@ def timp_fs25():
             print("❌ dayTime nu există în XML")
             return "FS25 | ???"
 
-        day_seconds = int(dayTime_attr) * TIME_MULTIPLIER  # ×3
+        day_seconds = int(dayTime_attr) * TIME_MULTIPLIER  # aplicăm ×3
 
         # total zile FS25
         total_days = day_seconds // 86400
