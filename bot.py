@@ -5,11 +5,11 @@ import asyncio
 import os
 
 # --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
-VOICE_CHANNEL_ID = 1466767151267446953
-TIME_MULTIPLIER = 3
-SERVER_START = datetime(2026, 6, 5, 8, 10, tzinfo=timezone.utc)  # Start server (UTC)
-DAYS_PER_MONTH = 5  # o lună FS25 = 5 zile
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment Variables
+VOICE_CHANNEL_ID = 1466767151267446953           # ID canal voice
+TIME_MULTIPLIER = 3                              # x3
+SERVER_START = datetime(2026, 6, 5, 8, 10, tzinfo=timezone.utc)  # Start server UTC
+DAYS_PER_MONTH = 5                                # 1 lună FS25 = 5 zile
 
 LUNI = {
     1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
@@ -30,11 +30,13 @@ def timp_fs25():
     # Total zile FS25
     total_days = int(total_minutes // (24*60))
 
-    # Ziua din lună FS25 (1..5)
-    zi_luna = (total_days % DAYS_PER_MONTH) + 1
+    # Ziua din lună FS25 (începând de la ziua 5)
+    zi_start = 5
+    zi_luna = (zi_start + total_days - 1) % DAYS_PER_MONTH + 1
 
-    # Luna FS25 (1..12)
-    luna_index = ((total_days // DAYS_PER_MONTH) % 12) + 1
+    # Luna FS25 (începând de la IUN = 6)
+    luna_start = 6
+    luna_index = ((luna_start - 1 + (total_days // DAYS_PER_MONTH)) % 12) + 1
 
     # Ora și minutul în joc
     minutes_in_day = total_minutes % (24*60)
@@ -72,8 +74,7 @@ async def update_voice_name():
 @bot.event
 async def on_ready():
     print(f"Botul este online ca {bot.user}")
-    # Delay la start ca să evităm primul PATCH imediat
-    await asyncio.sleep(10)
+    await asyncio.sleep(10)  # Delay la start pentru a evita rate-limit
     update_voice_name.start()
 
 # --- START BOT ---
