@@ -30,7 +30,7 @@ def timp_fs25():
     ora_joc = int(total_minutes // 60)
     minut_joc = int(total_minutes % 60)
 
-    return f" {SERVER_START.year} | {LUNI[SERVER_START.month]} | {ora_joc:02d}:{minut_joc:02d} x{TIME_MULTIPLIER}"
+    return f" {SERVER_START.year} | {LUNI[SERVER_START.month]} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
 
 # --- TASKS ---
 @tasks.loop(seconds=60)
