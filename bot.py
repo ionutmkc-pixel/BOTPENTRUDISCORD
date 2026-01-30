@@ -1,14 +1,13 @@
 import discord
 from discord.ext import tasks, commands
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 
 # --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment Variables
-VOICE_CHANNEL_ID = 1466767151267446953          # ID-ul canalului tău de voice
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # Token pus în Environment Variables
+VOICE_CHANNEL_ID = 1466767151267446953          # ID-ul canalului de voice
 TIME_MULTIPLIER = 3                              # x3
-# Data inițială a serverului: 5 Iunie 2026, ora 08:10
-SERVER_START = datetime(2026, 6, 5, 8, 10)
+SERVER_START = datetime(2026, 6, 5, 8, 10, tzinfo=timezone.utc)  # Start server (UTC)
 
 LUNI = {
     1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
@@ -16,14 +15,14 @@ LUNI = {
     9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
 }
 
-intents = discord.Intents.default()
+# --- BOT ---
+intents = discord.Intents.default()  # nu avem nevoie de privileged intents
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- FUNCȚII ---
 def timp_fs25():
-    # Calculăm timpul în joc: x3 față de timpul real
-    now = datetime.utcnow()
-    delta = now - SERVER_START  # diferența față de startul serverului
+    now = datetime.now(timezone.utc)
+    delta = now - SERVER_START
     total_minutes = (delta.total_seconds() / 60) * TIME_MULTIPLIER
     total_minutes %= 1440  # rămâne în intervalul unei zile
 
@@ -33,7 +32,7 @@ def timp_fs25():
     return f"{SERVER_START.year} | {LUNI[SERVER_START.month]} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
 
 # --- TASKS ---
-@tasks.loop(seconds=60)
+@tasks.loop(minutes=5)  # update mai rar ca să evităm rate-limit
 async def update_voice_name():
     canal = bot.get_channel(VOICE_CHANNEL_ID)
     if canal and isinstance(canal, discord.VoiceChannel):
