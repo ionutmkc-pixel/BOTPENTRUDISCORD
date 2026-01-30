@@ -1,9 +1,8 @@
 import discord
 from discord.ext import tasks, commands
-import requests
-import xml.etree.ElementTree as ET
 import asyncio
 import os
+from datetime import datetime, timedelta
 
 # --- CONFIGURAȚIE ---
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment Variables
@@ -12,6 +11,9 @@ TIME_MULTIPLIER = 3                               # afișare ×3 în nume
 DAYS_PER_MONTH = 5                                # o lună FS25 = 5 zile
 START_MONTH = 6                                   # IUN
 START_YEAR = 2026
+START_DAY = 5                                     # ziua inițială
+START_HOUR = 10                                   # ora inițială
+START_MINUTE = 0                                  # minut inițial
 
 LUNI = {
     1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
@@ -19,50 +21,23 @@ LUNI = {
     9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
 }
 
-# Link XML FS25
-XML_URL = "http://85.190.163.102:10710/feed/dedicated-server-stats.xml?code=0c77cbd246bbdae1ad09d6ef78780e78"
-
 # --- BOT ---
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- FUNCȚII ---
+# --- Timp FS25 intern ---
+current_fs25 = datetime(START_YEAR, START_MONTH, START_DAY, START_HOUR, START_MINUTE)
+
 def timp_fs25():
-    try:
-        r = requests.get(XML_URL, timeout=5)
-        root = ET.fromstring(r.content)
+    global current_fs25
+    # Calculăm ora ×3 doar pentru afișare
+    ora = current_fs25.hour
+    minut = current_fs25.minute
+    zi = current_fs25.day
+    luna = current_fs25.month
+    an = current_fs25.year
 
-        # preluăm dayTime în milisecunde și convertim în secunde
-        dayTime_attr = root.attrib.get("dayTime")
-        if not dayTime_attr:
-            print("❌ dayTime nu există în XML")
-            return "FS25 | ???"
-
-        day_seconds = int(dayTime_attr) // 1000  # corectăm milisecunde → secunde
-
-        # total zile FS25
-        total_days = day_seconds // 86400
-
-        # Ziua din lună (1..5)
-        zi_luna = (total_days % DAYS_PER_MONTH) + 1
-
-        # Luna FS25
-        luna_index = ((START_MONTH - 1 + (total_days // DAYS_PER_MONTH)) % 12) + 1
-
-        # An FS25
-        an_fs25 = START_YEAR + ((START_MONTH - 1 + (total_days // DAYS_PER_MONTH)) // 12)
-
-        # Ora și minutul
-        seconds_in_day = day_seconds % 86400
-        ora_joc = int(seconds_in_day // 3600)
-        minut_joc = int((seconds_in_day % 3600) // 60)
-
-        # Returnăm timpul FS25 exact + ×3 doar pentru afișare
-        return f"{an_fs25} | {LUNI[luna_index]} {zi_luna} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
-
-    except Exception as e:
-        print(f"❌ Eroare la citirea XML sau calcul: {e}")
-        return "FS25 | ???"
+    return f"{an} | {LUNI[luna]} {zi} | {ora:02d}:{minut:02d} | x{TIME_MULTIPLIER}"
 
 async def safe_edit_channel(channel):
     nume_nou = timp_fs25()
@@ -85,14 +60,28 @@ async def safe_edit_channel(channel):
                 print(f"❌ Eroare la editarea canalului: {e}")
                 return
 
-# --- TASK ---
+# --- TASK: update la fiecare minut ---
 @tasks.loop(minutes=1)
 async def update_voice_name():
+    global current_fs25
     canal = bot.get_channel(VOICE_CHANNEL_ID)
     if canal and isinstance(canal, discord.VoiceChannel):
-        nou_nume = timp_fs25()
-        print(f"[DEBUG] Numele calculat FS25: {nou_nume}")
+        # incrementăm timpul cu 1 minut real
+        current_fs25 += timedelta(minutes=1)
+        # verificăm overflow pentru luna FS25 (5 zile)
+        zi = current_fs25.day
+        if zi > DAYS_PER_MONTH:
+            current_fs25 = current_fs25.replace(day=1)
+            # incrementăm luna
+            luna = current_fs25.month + 1
+            an = current_fs25.year
+            if luna > 12:
+                luna = 1
+                an += 1
+            current_fs25 = current_fs25.replace(month=luna, year=an)
+        # edităm canalul
         await safe_edit_channel(canal)
+        print(f"[DEBUG] Numele calculat FS25: {timp_fs25()}")
 
 # --- EVENIMENTE ---
 @bot.event
