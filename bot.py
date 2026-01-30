@@ -5,10 +5,10 @@ import asyncio
 import os
 
 # --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # Token pus în Environment Variables
+DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # Pune tokenul în Environment Variables
 VOICE_CHANNEL_ID = 1466767151267446953           # ID canal voice
 TIME_MULTIPLIER = 3                              # x3
-SERVER_START = datetime(2026, 6, 5, 12, 0, tzinfo=timezone.utc)  # Start FS25 la ora 12:00
+SERVER_START = datetime(2026, 6, 5, 1, 30, tzinfo=timezone.utc)  # Start FS25 la 01:30
 DAYS_PER_MONTH = 5                                # O lună FS25 = 5 zile
 
 LUNI = {
@@ -33,7 +33,7 @@ def timp_fs25():
     total_days = int(total_minutes // (24*60))
 
     # Ziua din lună FS25 (1..5)
-    zi_luna = (5 + total_days - 1) % DAYS_PER_MONTH + 1
+    zi_luna = (1 + total_days - 1) % DAYS_PER_MONTH + 1
 
     # Luna FS25 (începând de la IUN = 6)
     luna_index = ((6 - 1 + (total_days // DAYS_PER_MONTH)) % 12) + 1
