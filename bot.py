@@ -25,10 +25,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def timp_fs25():
     now = datetime.now(timezone.utc)
 
-    # Dacă suntem înainte de startul FS25 → rămâne ora de start
-    if now < SERVER_START:
-        return f"2026 | IUN 5 | 12:00 | x{TIME_MULTIPLIER}"
-
     # Diferența de timp în minute × TIME_MULTIPLIER
     delta = now - SERVER_START
     total_minutes = delta.total_seconds() / 60 * TIME_MULTIPLIER
@@ -53,7 +49,6 @@ def timp_fs25():
     return f"{an_fs25} | {LUNI[luna_index]} {zi_luna} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
 
 async def safe_edit_channel(channel):
-    """Editează canalul doar dacă s-a schimbat și retry la 429."""
     nume_nou = timp_fs25()
     if channel.name == nume_nou:
         return  # nu schimbăm dacă e deja corect
@@ -87,7 +82,7 @@ async def update_voice_name():
 @bot.event
 async def on_ready():
     print(f"Botul este online ca {bot.user}")
-    await asyncio.sleep(20)  # Delay mai sigur la start
+    await asyncio.sleep(5)
     update_voice_name.start()
 
 # --- START BOT ---
