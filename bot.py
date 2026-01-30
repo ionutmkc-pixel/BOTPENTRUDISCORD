@@ -9,11 +9,11 @@ DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment 
 VOICE_CHANNEL_ID = 1466767151267446953          # ID canal voice
 TIME_MULTIPLIER = 3                               # afișare ×3 în nume
 DAYS_PER_MONTH = 5                                # o lună FS25 = 5 zile
-START_MONTH = 6                                   # IUN
-START_YEAR = 2026
-START_DAY = 5                                     # ziua inițială
-START_HOUR = 10                                   # ora inițială
-START_MINUTE = 0                                  # minut inițial
+START_YEAR = 2026                                 # anul FS25
+START_MONTH = 6                                   # luna FS25 (IUN)
+START_DAY = 5                                     # ziua FS25
+START_HOUR = 16                                   # ora FS25
+START_MINUTE = 11                                 # minutul FS25
 
 LUNI = {
     1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
@@ -25,22 +25,22 @@ LUNI = {
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- Timp FS25 intern ---
-current_fs25 = datetime(START_YEAR, START_MONTH, START_DAY, START_HOUR, START_MINUTE)
+# Variabilă globală pentru timpul FS25
+fs25_time = datetime(START_YEAR, START_MONTH, START_DAY, START_HOUR, START_MINUTE)
 
-def timp_fs25():
-    global current_fs25
-    # Calculăm ora ×3 doar pentru afișare
-    ora = current_fs25.hour
-    minut = current_fs25.minute
-    zi = current_fs25.day
-    luna = current_fs25.month
-    an = current_fs25.year
-
-    return f"{an} | {LUNI[luna]} {zi} | {ora:02d}:{minut:02d} | x{TIME_MULTIPLIER}"
+# --- FUNCȚII ---
+def format_fs25_time():
+    """Returnează timpul FS25 formatat pentru numele canalului"""
+    global fs25_time
+    an = fs25_time.year
+    luna = LUNI[fs25_time.month]
+    zi = fs25_time.day
+    ora = fs25_time.hour
+    minut = fs25_time.minute
+    return f"{an} | {luna} {zi} | {ora:02d}:{minut:02d} | x{TIME_MULTIPLIER}"
 
 async def safe_edit_channel(channel):
-    nume_nou = timp_fs25()
+    nume_nou = format_fs25_time()
     if channel.name == nume_nou:
         return
 
@@ -60,28 +60,27 @@ async def safe_edit_channel(channel):
                 print(f"❌ Eroare la editarea canalului: {e}")
                 return
 
-# --- TASK: update la fiecare minut ---
+def increment_fs25_time(minutes=1):
+    """Crește timpul FS25 cu minutes * TIME_MULTIPLIER"""
+    global fs25_time
+    delta = timedelta(minutes=minutes)
+    fs25_time += delta * TIME_MULTIPLIER
+
+    # Ajustăm ziua și luna FS25 (o lună = 5 zile)
+    while fs25_time.day > DAYS_PER_MONTH:
+        fs25_time = fs25_time.replace(day=fs25_time.day - DAYS_PER_MONTH)
+        fs25_time = fs25_time.replace(month=(fs25_time.month % 12) + 1)
+        if fs25_time.month == 1:
+            fs25_time = fs25_time.replace(year=fs25_time.year + 1)
+
+# --- TASK ---
 @tasks.loop(minutes=1)
 async def update_voice_name():
-    global current_fs25
+    increment_fs25_time()  # crește timpul FS25
     canal = bot.get_channel(VOICE_CHANNEL_ID)
     if canal and isinstance(canal, discord.VoiceChannel):
-        # incrementăm timpul cu 1 minut real
-        current_fs25 += timedelta(minutes=1)
-        # verificăm overflow pentru luna FS25 (5 zile)
-        zi = current_fs25.day
-        if zi > DAYS_PER_MONTH:
-            current_fs25 = current_fs25.replace(day=1)
-            # incrementăm luna
-            luna = current_fs25.month + 1
-            an = current_fs25.year
-            if luna > 12:
-                luna = 1
-                an += 1
-            current_fs25 = current_fs25.replace(month=luna, year=an)
-        # edităm canalul
+        print(f"[DEBUG] Numele calculat FS25: {format_fs25_time()}")
         await safe_edit_channel(canal)
-        print(f"[DEBUG] Numele calculat FS25: {timp_fs25()}")
 
 # --- EVENIMENTE ---
 @bot.event
