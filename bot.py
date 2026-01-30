@@ -8,7 +8,7 @@ import os
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # Token pus în Environment Variables
 VOICE_CHANNEL_ID = 1466767151267446953           # ID canal voice
 TIME_MULTIPLIER = 3                              # x3
-SERVER_START = datetime(2026, 6, 5, 10, 0, tzinfo=timezone.utc)  # Start FS25 la ora 10:00
+SERVER_START = datetime(2026, 6, 5, 12, 0, tzinfo=timezone.utc)  # Start FS25 la ora 12:00
 DAYS_PER_MONTH = 5                                # O lună FS25 = 5 zile
 
 LUNI = {
@@ -27,7 +27,7 @@ def timp_fs25():
 
     # Dacă suntem înainte de startul FS25 → rămâne IUN 5
     if now < SERVER_START:
-        return f"2026 | IUN 5 | 10:00 | x{TIME_MULTIPLIER}"
+        return f"2026 | IUN 5 | 12:00 | x{TIME_MULTIPLIER}"
 
     # Diferența de timp în minute × TIME_MULTIPLIER
     delta = now - SERVER_START
