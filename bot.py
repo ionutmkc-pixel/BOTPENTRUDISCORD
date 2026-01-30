@@ -1,4 +1,4 @@
-)import discord
+import discord
 from discord.ext import tasks, commands
 from datetime import datetime, timedelta, timezone
 import asyncio
