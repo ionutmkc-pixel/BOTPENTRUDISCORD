@@ -15,6 +15,7 @@ START_DAY = 5                                     # ziua FS25
 START_HOUR = 16                                   # ora FS25
 START_MINUTE = 11                                 # minutul FS25
 
+# Lunile în română
 LUNI = {
     1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
     5: "MAI", 6: "IUN", 7: "IUL", 8: "AUG",
@@ -39,10 +40,24 @@ def format_fs25_time():
     minut = fs25_time.minute
     return f"{an} | {luna} {zi} | {ora:02d}:{minut:02d} | x{TIME_MULTIPLIER}"
 
+def increment_fs25_time(minutes=1):
+    """Crește timpul FS25 cu minutes * TIME_MULTIPLIER"""
+    global fs25_time
+    delta = timedelta(minutes=minutes)
+    fs25_time += delta * TIME_MULTIPLIER
+
+    # Ajustăm ziua și luna FS25 (o lună = 5 zile)
+    while fs25_time.day > DAYS_PER_MONTH:
+        fs25_time = fs25_time.replace(day=fs25_time.day - DAYS_PER_MONTH)
+        fs25_time = fs25_time.replace(month=(fs25_time.month % 12) + 1)
+        if fs25_time.month == 1:
+            fs25_time = fs25_time.replace(year=fs25_time.year + 1)
+
 async def safe_edit_channel(channel):
+    """Editează numele canalului, evitând rate-limit"""
     nume_nou = format_fs25_time()
     if channel.name == nume_nou:
-        return
+        return  # deja corect
 
     retry = 0
     while retry < 5:
@@ -60,21 +75,8 @@ async def safe_edit_channel(channel):
                 print(f"❌ Eroare la editarea canalului: {e}")
                 return
 
-def increment_fs25_time(minutes=1):
-    """Crește timpul FS25 cu minutes * TIME_MULTIPLIER"""
-    global fs25_time
-    delta = timedelta(minutes=minutes)
-    fs25_time += delta * TIME_MULTIPLIER
-
-    # Ajustăm ziua și luna FS25 (o lună = 5 zile)
-    while fs25_time.day > DAYS_PER_MONTH:
-        fs25_time = fs25_time.replace(day=fs25_time.day - DAYS_PER_MONTH)
-        fs25_time = fs25_time.replace(month=(fs25_time.month % 12) + 1)
-        if fs25_time.month == 1:
-            fs25_time = fs25_time.replace(year=fs25_time.year + 1)
-
 # --- TASK ---
-@tasks.loop(minutes=1)
+@tasks.loop(minutes=2)  # actualizare la fiecare 2 minute pentru a evita rate-limit
 async def update_voice_name():
     increment_fs25_time()  # crește timpul FS25
     canal = bot.get_channel(VOICE_CHANNEL_ID)
