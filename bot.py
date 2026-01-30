@@ -15,8 +15,10 @@ LUNI = {
     9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
 }
 
+DAYS_PER_MONTH = 5  # o lună pe server = 5 zile
+
 # --- BOT ---
-intents = discord.Intents.default()  # nu avem nevoie de privileged intents
+intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- FUNCȚII ---
@@ -24,15 +26,18 @@ def timp_fs25():
     now = datetime.now(timezone.utc)
     delta = now - SERVER_START
     total_minutes = (delta.total_seconds() / 60) * TIME_MULTIPLIER
-    total_minutes %= 1440  # rămâne în intervalul unei zile
 
-    ora_joc = int(total_minutes // 60)
-    minut_joc = int(total_minutes % 60)
+    total_days = total_minutes // (24 * 60)
+    minutes_in_day = total_minutes % (24 * 60)
+    ora_joc = int(minutes_in_day // 60)
+    minut_joc = int(minutes_in_day % 60)
 
-    return f"{SERVER_START.year} | {LUNI[SERVER_START.month]} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
+    # Calcul luna FS25 (1 lună = 5 zile)
+    luna_index = (total_days // DAYS_PER_MONTH) % 12 + 1  # 1..12
+    return f"{SERVER_START.year} | {LUNI[luna_index]} | {ora_joc:02d}:{minut_joc:02d} | x{TIME_MULTIPLIER}"
 
 # --- TASKS ---
-@tasks.loop(minutes=5)  # update mai rar ca să evităm rate-limit
+@tasks.loop(minutes=5)
 async def update_voice_name():
     canal = bot.get_channel(VOICE_CHANNEL_ID)
     if canal and isinstance(canal, discord.VoiceChannel):
@@ -46,6 +51,7 @@ async def update_voice_name():
 @bot.event
 async def on_ready():
     print(f"Botul este online ca {bot.user}")
+    await discord.utils.sleep_until(datetime.now() + timedelta(seconds=10))  # delay 10 sec
     update_voice_name.start()
 
 # --- START BOT ---
