@@ -25,7 +25,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def timp_fs25():
     now = datetime.now(timezone.utc)
 
-    # Dacă suntem înainte de startul FS25 → rămâne IUN 5
+    # Dacă suntem înainte de startul FS25 → rămâne ora de start
     if now < SERVER_START:
         return f"2026 | IUN 5 | 12:00 | x{TIME_MULTIPLIER}"
 
@@ -75,10 +75,12 @@ async def safe_edit_channel(channel):
                 return
 
 # --- TASKS ---
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=1)
 async def update_voice_name():
     canal = bot.get_channel(VOICE_CHANNEL_ID)
     if canal and isinstance(canal, discord.VoiceChannel):
+        nou_nume = timp_fs25()
+        print(f"[DEBUG] Numele calculat FS25: {nou_nume}")
         await safe_edit_channel(canal)
 
 # --- EVENIMENTE ---
