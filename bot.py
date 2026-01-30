@@ -32,13 +32,13 @@ def timp_fs25():
         r = requests.get(XML_URL, timeout=5)
         root = ET.fromstring(r.content)
 
-        # preluăm dayTime în secunde direct din server
+        # preluăm dayTime în milisecunde și convertim în secunde
         dayTime_attr = root.attrib.get("dayTime")
         if not dayTime_attr:
             print("❌ dayTime nu există în XML")
             return "FS25 | ???"
 
-        day_seconds = int(dayTime_attr)  # nu aplicăm ×3 în calcul
+        day_seconds = int(dayTime_attr) // 1000  # corectăm milisecunde → secunde
 
         # total zile FS25
         total_days = day_seconds // 86400
