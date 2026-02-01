@@ -11,20 +11,18 @@ from discord.ext import tasks
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 CHANNEL_ID = 1466767151267446953
-SERVER_NAME = "MAX-AGRO"
 
 SAVEGAME_URL = (
     "http://85.190.163.102:10710/feed/dedicated-server-savegame.html"
     "?code=0c77cbd246bbdae1ad09d6ef78780e78&file=careerSavegame"
 )
 
-UPDATE_INTERVAL = 600  # 10 minute – safe pentru rate limit
+UPDATE_INTERVAL = 600  # 10 minute (safe pt rate-limit)
 
 # ====== DISCORD CLIENT ======
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
-# ====== HELPERS ======
 def download_xml(url: str) -> BytesIO:
     r = requests.get(url, timeout=20)
     r.raise_for_status()
@@ -61,13 +59,12 @@ async def update_channel_map_name():
         map_title = get_map_title(xml_file)
 
         if not map_title:
-            new_name = f"🌾 harta necunoscută | {SERVER_NAME} |"
+            new_name = "🌾 harta-unknown"
         else:
-            new_name = f"🌾 {map_title} | {SERVER_NAME} |"
+            new_name = f"🌾 {map_title}"
 
         new_name = clean_channel_name(new_name)
 
-        # nu edita dacă e deja la fel
         if getattr(channel, "name", None) == new_name:
             return
 
@@ -79,7 +76,6 @@ async def update_channel_map_name():
     except Exception as e:
         print("Eroare update:", e)
 
-# ====== LOOP ======
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def loop_update():
     await update_channel_map_name()
