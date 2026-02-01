@@ -15,8 +15,6 @@ HOURS_PER_DAY = 24
 DAYS_PER_SEASON = 30
 SEASONS = ["Primăvară", "Vară", "Toamnă", "Iarnă"]
 
-message_id = None  # ID-ul mesajului de actualizat
-
 # ---------------- CLIENT DISCORD ----------------
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -56,29 +54,27 @@ def parse_time(xml_file):
     
     return hour, minute, day, season
 
-async def update_fs25_time():
-    global message_id
+async def update_fs25_channel():
     channel = client.get_channel(CHANNEL_ID)
     xml_file = download_savegame()
     if xml_file:
         result = parse_time(xml_file)
         if result:
             hour, minute, day, season = result
-            content = f"⏰ Ora în joc: {hour:02d}:{minute:02d}\n📆 Zi: {day}\n🍂 Sezon: {season}"
+            new_name = f"⏰ {hour:02d}:{minute:02d} | Zi {day} | {season}"
             try:
-                if message_id:
-                    msg = await channel.fetch_message(message_id)
-                    await msg.edit(content=content)
-                else:
-                    message = await channel.send(content)
-                    message_id = message.id
+                # Schimbă numele canalului
+                await channel.edit(name=new_name)
+                print(f"Canal actualizat: {new_name}")
             except Exception as e:
-                print("Eroare la postare/update Discord:", e)
+                print("Eroare la edit canal:", e)
+    else:
+        print("Nu am putut descărca savegame-ul.")
 
 # ---------------- TASK PERIODIC ----------------
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def fs25_loop():
-    await update_fs25_time()
+    await update_fs25_channel()
 
 @client.event
 async def on_ready():
