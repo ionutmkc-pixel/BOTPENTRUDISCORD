@@ -1,95 +1,88 @@
 import discord
-from discord.ext import tasks, commands
-import asyncio
+from discord.ext import tasks
+import requests
+import xml.etree.ElementTree as ET
+from io import BytesIO
 import os
-from datetime import datetime, timedelta
 
-# --- CONFIGURAȚIE ---
-DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Environment Variables
-VOICE_CHANNEL_ID = 1466767151267446953          # ID canal voice
-TIME_MULTIPLIER = 3                               # afișare ×3 în nume
-DAYS_PER_MONTH = 5                                # o lună FS25 = 5 zile
-START_YEAR = 2026                                 # anul FS25
-START_MONTH = 6                                   # luna FS25 (IUN)
-START_DAY = 5                                     # ziua FS25
-START_HOUR = 16                                   # ora FS25
-START_MINUTE = 11                                 # minutul FS25
+# ---------------- CONFIG ----------------
+TOKEN = os.environ.get("DISCORD_TOKEN")  # token pus ca Environment Variable in Railway
+CHANNEL_ID = 1466767151267446953  # canalul tau
+NITRADO_URL = "http://85.190.163.102:10710/feed/dedicated-server-savegame.html?code=0c77cbd246bbdae1ad09d6ef78780e78&file=careerSavegame"
 
-# Lunile în română
-LUNI = {
-    1: "IAN", 2: "FEB", 3: "MAR", 4: "APR",
-    5: "MAI", 6: "IUN", 7: "IUL", 8: "AUG",
-    9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
-}
+UPDATE_INTERVAL = 300  # secunde, la fiecare 5 minute
+HOURS_PER_DAY = 24
+DAYS_PER_SEASON = 30
+SEASONS = ["Primăvară", "Vară", "Toamnă", "Iarnă"]
 
-# --- BOT ---
+message_id = None  # ID-ul mesajului de actualizat
+
+# ---------------- CLIENT DISCORD ----------------
 intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
+client = discord.Client(intents=intents)
 
-# Variabilă globală pentru timpul FS25
-fs25_time = datetime(START_YEAR, START_MONTH, START_DAY, START_HOUR, START_MINUTE)
+# ---------------- FUNCȚII ----------------
+def download_savegame():
+    try:
+        response = requests.get(NITRADO_URL)
+        response.raise_for_status()
+        return BytesIO(response.content)
+    except Exception as e:
+        print("Eroare la descărcare savegame:", e)
+        return None
 
-# --- FUNCȚII ---
-def format_fs25_time():
-    """Returnează timpul FS25 formatat pentru numele canalului"""
-    global fs25_time
-    an = fs25_time.year
-    luna = LUNI[fs25_time.month]
-    zi = fs25_time.day
-    ora = fs25_time.hour
-    minut = fs25_time.minute
-    return f"{an} | {luna} {zi} | {ora:02d}:{minut:02d} | x{TIME_MULTIPLIER}"
+def parse_time(xml_file):
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    
+    playTime_elem = root.find(".//statistics/playTime")
+    timeScale_elem = root.find(".//settings/timeScale")
+    
+    if playTime_elem is None or timeScale_elem is None:
+        return None
+    
+    playTime = float(playTime_elem.text)
+    timeScale = float(timeScale_elem.text)
+    
+    game_hours_total = playTime * timeScale
+    
+    hour = int(game_hours_total % HOURS_PER_DAY)
+    minute = int((game_hours_total % 1) * 60)
+    
+    total_days = int(game_hours_total // HOURS_PER_DAY)
+    day = (total_days % DAYS_PER_SEASON) + 1
+    season_index = (total_days // DAYS_PER_SEASON) % len(SEASONS)
+    season = SEASONS[season_index]
+    
+    return hour, minute, day, season
 
-def increment_fs25_time(minutes=1):
-    """Crește timpul FS25 cu minutes * TIME_MULTIPLIER"""
-    global fs25_time
-    delta = timedelta(minutes=minutes)
-    fs25_time += delta * TIME_MULTIPLIER
+async def update_fs25_time():
+    global message_id
+    channel = client.get_channel(CHANNEL_ID)
+    xml_file = download_savegame()
+    if xml_file:
+        result = parse_time(xml_file)
+        if result:
+            hour, minute, day, season = result
+            content = f"⏰ Ora în joc: {hour:02d}:{minute:02d}\n📆 Zi: {day}\n🍂 Sezon: {season}"
+            try:
+                if message_id:
+                    msg = await channel.fetch_message(message_id)
+                    await msg.edit(content=content)
+                else:
+                    message = await channel.send(content)
+                    message_id = message.id
+            except Exception as e:
+                print("Eroare la postare/update Discord:", e)
 
-    # Ajustăm ziua și luna FS25 (o lună = 5 zile)
-    while fs25_time.day > DAYS_PER_MONTH:
-        fs25_time = fs25_time.replace(day=fs25_time.day - DAYS_PER_MONTH)
-        fs25_time = fs25_time.replace(month=(fs25_time.month % 12) + 1)
-        if fs25_time.month == 1:
-            fs25_time = fs25_time.replace(year=fs25_time.year + 1)
+# ---------------- TASK PERIODIC ----------------
+@tasks.loop(seconds=UPDATE_INTERVAL)
+async def fs25_loop():
+    await update_fs25_time()
 
-async def safe_edit_channel(channel):
-    """Editează numele canalului, evitând rate-limit"""
-    nume_nou = format_fs25_time()
-    if channel.name == nume_nou:
-        return  # deja corect
-
-    retry = 0
-    while retry < 5:
-        try:
-            await channel.edit(name=nume_nou)
-            print(f"✅ Canal actualizat: {nume_nou}")
-            return
-        except discord.HTTPException as e:
-            if e.status == 429:
-                retry_after = getattr(e, 'retry_after', 60)
-                print(f"⚠️ Rate-limit, reîncerc după {retry_after:.2f} secunde")
-                await asyncio.sleep(retry_after + 1)
-                retry += 1
-            else:
-                print(f"❌ Eroare la editarea canalului: {e}")
-                return
-
-# --- TASK ---
-@tasks.loop(minutes=2)  # actualizare la fiecare 2 minute pentru a evita rate-limit
-async def update_voice_name():
-    increment_fs25_time()  # crește timpul FS25
-    canal = bot.get_channel(VOICE_CHANNEL_ID)
-    if canal and isinstance(canal, discord.VoiceChannel):
-        print(f"[DEBUG] Numele calculat FS25: {format_fs25_time()}")
-        await safe_edit_channel(canal)
-
-# --- EVENIMENTE ---
-@bot.event
+@client.event
 async def on_ready():
-    print(f"Botul este online ca {bot.user}")
-    await asyncio.sleep(5)
-    update_voice_name.start()
+    print(f'Logged in ca {client.user}')
+    fs25_loop.start()
 
-# --- START BOT ---
-bot.run(DISCORD_TOKEN)
+client.run(TOKEN)
