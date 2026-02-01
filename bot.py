@@ -12,18 +12,18 @@ from discord.ext import commands, tasks
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 CHANNEL_ID = 1466767151267446953
+SERVER_NAME = "MAX-AGRO"
+
 NITRADO_URL = "http://85.190.163.102:10710/feed/dedicated-server-savegame.html?code=0c77cbd246bbdae1ad09d6ef78780e78&file=careerSavegame"
 
 UPDATE_INTERVAL = 300  # 5 minute
-DAYS_PER_MONTH = 5     # la tine: 5 zile / lună
 
-STATE_FILE = "fs_time_state.json"  # pe Railway poate dispărea la redeploy -> dai !sync iar
-
+STATE_FILE = "fs_time_state.json"  # Railway poate pierde fișierul la redeploy -> dai !sync din nou
 MINUTES_PER_DAY = 24 * 60
 
 # ====== DISCORD BOT ======
 intents = discord.Intents.default()
-intents.message_content = True  # necesar pentru comenzi !sync
+intents.message_content = True  # necesar pentru comanda !sync
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 def load_state():
@@ -63,6 +63,7 @@ def parse_playtime_timescale(xml_file):
     return playTime_hours, timeScale
 
 def compute_raw_total_minutes(playTime_hours: float, timeScale: float) -> int:
+    # minute totale "în joc" derivate din playTime și timeScale
     return int(math.floor(playTime_hours * timeScale * 60.0))
 
 def minutes_to_hhmm(total_minutes: int):
@@ -70,10 +71,6 @@ def minutes_to_hhmm(total_minutes: int):
     hh = m // 60
     mm = m % 60
     return int(hh), int(mm)
-
-def compute_day_in_month(total_minutes: int) -> int:
-    total_days = total_minutes // MINUTES_PER_DAY
-    return int((total_days % DAYS_PER_MONTH) + 1)
 
 def parse_hhmm(s: str):
     s = s.strip()
@@ -87,7 +84,7 @@ def parse_hhmm(s: str):
     return hh, mm
 
 def pick_signed_offset(raw_clock_minutes: int, target_clock_minutes: int) -> int:
-    # (raw + offset) % 1440 = target
+    # (raw + offset) % 1440 = target; alegem offset minim ca valoare absolută
     diff = (target_clock_minutes - raw_clock_minutes) % MINUTES_PER_DAY
     if diff > MINUTES_PER_DAY // 2:
         diff -= MINUTES_PER_DAY
@@ -104,24 +101,22 @@ async def update_channel_name():
         xml_file = download_savegame()
         parsed = parse_playtime_timescale(xml_file)
         if not parsed:
-            await channel.edit(name="⏰ FS: no-data")
+            await channel.edit(name=f"⏰ --:-- | {SERVER_NAME} |")
             return
 
         playTime_hours, timeScale = parsed
         raw_total_minutes = compute_raw_total_minutes(playTime_hours, timeScale)
 
-        # dacă nu e sincronizat încă, afișăm ceva util
+        # dacă nu e sincronizat încă, arătăm ora estimată (doar ca să vezi ceva)
         if offset_minutes_signed is None:
             hh, mm = minutes_to_hhmm(raw_total_minutes)
-            day = compute_day_in_month(raw_total_minutes)
-            await channel.edit(name=f"⏰ {hh:02d}:{mm:02d} | Zi {day} | !sync")
+            await channel.edit(name=f"⏰ {hh:02d}:{mm:02d} | {SERVER_NAME} |")
             return
 
-        synced_total_minutes = raw_total_minutes + int(offset_minutes_signed)
-        hh, mm = minutes_to_hhmm(synced_total_minutes)
-        day = compute_day_in_month(synced_total_minutes)
+        synced_minutes = raw_total_minutes + int(offset_minutes_signed)
+        hh, mm = minutes_to_hhmm(synced_minutes)
 
-        await channel.edit(name=f"⏰ {hh:02d}:{mm:02d} | Zi {day}")
+        await channel.edit(name=f"⏰ {hh:02d}:{mm:02d} | {SERVER_NAME} |")
 
     except discord.HTTPException as e:
         print("Discord HTTPException:", e)
@@ -142,7 +137,7 @@ async def on_ready():
 @bot.command(name="sync")
 async def sync(ctx, hhmm: str):
     """
-    Folosești: !sync 00:06  (ora exactă pe care o vezi ACUM în joc)
+    Folosești: !sync 00:06  (ora EXACTĂ pe care o vezi atunci în joc)
     """
     global offset_minutes_signed
 
@@ -167,7 +162,7 @@ async def sync(ctx, hhmm: str):
         save_state(state)
 
         await update_channel_name()
-        await ctx.reply(f"✅ Sincronizat! (Offset {offset_minutes_signed} min)")
+        await ctx.reply("✅ Sincronizat! Canalul ar trebui să arate fix ora serverului.")
 
     except Exception as e:
         await ctx.reply(f"❌ Eroare la sync: {e}")
