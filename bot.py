@@ -10,7 +10,7 @@ TOKEN = os.environ.get("DISCORD_TOKEN")  # token pus ca Environment Variable in 
 CHANNEL_ID = 1466767151267446953  # canalul tau
 NITRADO_URL = "http://85.190.163.102:10710/feed/dedicated-server-savegame.html?code=0c77cbd246bbdae1ad09d6ef78780e78&file=careerSavegame"
 
-UPDATE_INTERVAL = 300  # secunde, la fiecare 5 minute
+UPDATE_INTERVAL = 300  # 5 minute
 HOURS_PER_DAY = 24
 DAYS_PER_SEASON = 30
 SEASONS = ["Primăvară", "Vară", "Toamnă", "Iarnă"]
@@ -63,11 +63,10 @@ async def update_fs25_channel():
             hour, minute, day, season = result
             new_name = f"⏰ {hour:02d}:{minute:02d} | Zi {day} | {season}"
             try:
-                # Schimbă numele canalului
                 await channel.edit(name=new_name)
                 print(f"Canal actualizat: {new_name}")
-            except Exception as e:
-                print("Eroare la edit canal:", e)
+            except discord.errors.HTTPException as e:
+                print("Eroare la edit canal (posibil rate limit):", e)
     else:
         print("Nu am putut descărca savegame-ul.")
 
@@ -79,6 +78,9 @@ async def fs25_loop():
 @client.event
 async def on_ready():
     print(f'Logged in ca {client.user}')
+    # primul update imediat
+    await update_fs25_channel()
+    # apoi periodic
     fs25_loop.start()
 
 client.run(TOKEN)
