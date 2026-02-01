@@ -6,14 +6,18 @@ from io import BytesIO
 import os
 
 # ---------------- CONFIG ----------------
-TOKEN = os.environ.get("DISCORD_TOKEN")  # token pus ca Environment Variable in Railway
+TOKEN = os.environ.get("DISCORD_TOKEN")  # token Railway ENV
 CHANNEL_ID = 1466767151267446953  # canalul tau
 NITRADO_URL = "http://85.190.163.102:10710/feed/dedicated-server-savegame.html?code=0c77cbd246bbdae1ad09d6ef78780e78&file=careerSavegame"
 
 UPDATE_INTERVAL = 300  # 5 minute
 HOURS_PER_DAY = 24
-DAYS_PER_SEASON = 30
+DAYS_PER_SEASON = 5  # serverul tau are 5 zile pe lună
 SEASONS = ["Primăvară", "Vară", "Toamnă", "Iarnă"]
+SEASON_EMOJI = ["🌱", "☀️", "🍂", "❄️"]
+
+# Lunile pe server pentru afișare
+MONTHS = ["Sep", "Oct", "Nov", "Dec"]
 
 # ---------------- CLIENT DISCORD ----------------
 intents = discord.Intents.default()
@@ -42,6 +46,7 @@ def parse_time(xml_file):
     playTime = float(playTime_elem.text)
     timeScale = float(timeScale_elem.text)
     
+    # calculăm orele totale din joc
     game_hours_total = playTime * timeScale
     
     hour = int(game_hours_total % HOURS_PER_DAY)
@@ -49,10 +54,17 @@ def parse_time(xml_file):
     
     total_days = int(game_hours_total // HOURS_PER_DAY)
     day = (total_days % DAYS_PER_SEASON) + 1
+    
+    # calculăm sezon și emoji
     season_index = (total_days // DAYS_PER_SEASON) % len(SEASONS)
     season = SEASONS[season_index]
+    season_emoji = SEASON_EMOJI[season_index]
     
-    return hour, minute, day, season
+    # calculăm luna
+    month_index = (total_days // DAYS_PER_SEASON) % len(MONTHS)
+    month = MONTHS[month_index]
+    
+    return hour, minute, day, month, season, season_emoji
 
 async def update_fs25_channel():
     channel = client.get_channel(CHANNEL_ID)
@@ -60,8 +72,8 @@ async def update_fs25_channel():
     if xml_file:
         result = parse_time(xml_file)
         if result:
-            hour, minute, day, season = result
-            new_name = f"⏰ {hour:02d}:{minute:02d} | Zi {day} | {season}"
+            hour, minute, day, month, season, season_emoji = result
+            new_name = f"⏰ {hour:02d}:{minute:02d} | Zi {day} | {month} | {season_emoji} {season}"
             try:
                 await channel.edit(name=new_name)
                 print(f"Canal actualizat: {new_name}")
@@ -78,7 +90,7 @@ async def fs25_loop():
 @client.event
 async def on_ready():
     print(f'Logged in ca {client.user}')
-    # primul update imediat
+    # update instant la pornire
     await update_fs25_channel()
     # apoi periodic
     fs25_loop.start()
