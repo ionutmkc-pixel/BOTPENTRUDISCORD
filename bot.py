@@ -1,4 +1,3 @@
-
 import os
 import re
 import requests
@@ -11,12 +10,11 @@ from discord.ext import tasks
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 MAP_CHANNEL_ID = 1466767151267446953
-TIME_CHANNEL_ID = 1467532233601585448
 ECONOMY_CHANNEL_ID = 1467532195143880775
+TIME_CHANNEL_ID = 1467532233601585448
 PLAYERS_CHANNEL_ID = 1466873332036272352
 
-# fallback dacă XML nu are lista de player slots (la tine are)
-MAX_SLOTS = 6
+MAX_SLOTS_FALLBACK = 6  # folosit doar dacă XML nu are lista de sloturi <player>
 
 CODE = "0c77cbd246bbdae1ad09d6ef78780e78"
 BASE_URL = "http://85.190.163.102:10710/feed"
@@ -24,7 +22,7 @@ BASE_URL = "http://85.190.163.102:10710/feed"
 STATS_URL = f"{BASE_URL}/dedicated-server-stats.xml?code={CODE}"
 CAREER_URL = f"{BASE_URL}/dedicated-server-savegame.html?code={CODE}&file=careerSavegame"
 
-UPDATE_INTERVAL = 300  # 5 minute
+UPDATE_INTERVAL = 300  # 5 minute (pentru toate canalele)
 
 # ================= DISCORD =================
 intents = discord.Intents.default()
@@ -50,6 +48,7 @@ async def rename_channel(channel_id: int, new_name: str) -> None:
     new_name = clean_name(new_name)
     if ch.name != new_name:
         await ch.edit(name=new_name)
+        print(f"Renamed {channel_id} -> {new_name}")
 
 def to_small_caps(text: str) -> str:
     mapping = {
@@ -61,7 +60,8 @@ def to_small_caps(text: str) -> str:
     return "".join(mapping.get(c, c) for c in text.lower())
 
 def format_money(value: float) -> str:
-    return f"{int(round(value)):,}".replace(",", ".") + " €"
+    v = int(round(value))
+    return f"{v:,}".replace(",", ".") + " €"
 
 # ================= DATA =================
 def get_map_title() -> str:
@@ -70,7 +70,9 @@ def get_map_title() -> str:
     if el is not None and (el.text or "").strip():
         return el.text.strip()
     el2 = root.find(".//mapId")
-    return el2.text.strip() if el2 is not None and (el2.text or "").strip() else "unknown"
+    if el2 is not None and (el2.text or "").strip():
+        return el2.text.strip()
+    return "unknown"
 
 def get_money() -> float | None:
     root = fetch_xml(CAREER_URL)
@@ -90,17 +92,17 @@ def get_game_time() -> str:
                 ms = int(float(el.attrib.get("dayTime", "0")))
             except:
                 return "--:--"
-            mins = (ms // 1000) // 60
-            h = (mins // 60) % 24
-            m = mins % 60
-            return f"{h:02d}:{m:02d}"
+            total_minutes = (ms // 1000) // 60
+            hh = (total_minutes // 60) % 24
+            mm = total_minutes % 60
+            return f"{hh:02d}:{mm:02d}"
     return "--:--"
 
 def get_players_online_and_slots() -> tuple[int, int]:
     """
-    Corect pentru XML-ul tău:
-    - există 6 <player> (sloturi)
-    - online = câte au isUsed="true"
+    Corect pentru Nitrado FS25:
+    - de obicei există <player> slots
+    - fiecare slot are isUsed="true/false"
     """
     root = fetch_xml(STATS_URL)
 
@@ -110,8 +112,8 @@ def get_players_online_and_slots() -> tuple[int, int]:
             players.append(el)
 
     if not players:
-        # dacă nu există listă de sloturi în XML
-        return 0, MAX_SLOTS
+        # nu există slot list -> nu putem citi exact online
+        return 0, MAX_SLOTS_FALLBACK
 
     slots = len(players)
     online = 0
@@ -119,7 +121,6 @@ def get_players_online_and_slots() -> tuple[int, int]:
         if (p.attrib.get("isUsed", "")).lower() == "true":
             online += 1
 
-    # sanity
     if online < 0:
         online = 0
     if online > slots:
@@ -130,10 +131,10 @@ def get_players_online_and_slots() -> tuple[int, int]:
 # ================= UPDATE =================
 async def update_all():
     # MAP
-    await rename_channel(MAP_CHANNEL_ID, f"🌾 {to_small_caps(get_map_title())}")
-
-    # TIME
-    await rename_channel(TIME_CHANNEL_ID, f"⏰ ᴛɪᴍᴇ {get_game_time()}")
+    await rename_channel(
+        MAP_CHANNEL_ID,
+        f"🌾 {to_small_caps(get_map_title())}"
+    )
 
     # ECONOMY
     money = get_money()
@@ -142,9 +143,18 @@ async def update_all():
     else:
         await rename_channel(ECONOMY_CHANNEL_ID, f"💰 ᴇᴄᴏɴᴏᴍʏ {format_money(money)}")
 
-    # PLAYERS ONLINE
+    # TIME
+    await rename_channel(
+        TIME_CHANNEL_ID,
+        f"⏰ ᴛɪᴍᴇ {get_game_time()}"
+    )
+
+    # PLAYERS ONLINE (emoji schimbat la 🚜 cum ai cerut)
     online, slots = get_players_online_and_slots()
-    await rename_channel(PLAYERS_CHANNEL_ID, f"🌴 ᴘʟᴀʏᴇʀꜱ ᴏɴʟɪɴᴇ {online}/{slots}")
+    await rename_channel(
+        PLAYERS_CHANNEL_ID,
+        f"🚜 ᴘʟᴀʏᴇʀꜱ ᴏɴʟɪɴᴇ {online}/{slots}"
+    )
 
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def updater():
@@ -153,7 +163,7 @@ async def updater():
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-    await update_all()
+    await update_all()  # update instant
     if not updater.is_running():
         updater.start()
 
