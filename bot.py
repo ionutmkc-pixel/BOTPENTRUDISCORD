@@ -1,6 +1,5 @@
 import os
 import re
-import time
 import requests
 import xml.etree.ElementTree as ET
 from io import BytesIO
@@ -11,8 +10,9 @@ from discord.ext import tasks
 # ====== CONFIG ======
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
+# Channel IDs (VOICE)
 MAP_CHANNEL_ID = 1466767151267446953
-UPTIME_CHANNEL_ID = 1467532233601585448
+TIME_CHANNEL_ID = 1467532233601585448      # canalul “uptime” -> devine ora serverului
 ECONOMY_CHANNEL_ID = 1467532195143880775
 
 CODE = "0c77cbd246bbdae1ad09d6ef78780e78"
@@ -20,7 +20,6 @@ BASE = "http://85.190.163.102:10710/feed"
 
 STATS_URL = f"{BASE}/dedicated-server-stats.xml?code={CODE}"
 CAREER_URL = f"{BASE}/dedicated-server-savegame.html?code={CODE}&file=careerSavegame"
-ECONOMY_URL = f"{BASE}/dedicated-server-savegame.html?code={CODE}&file=economy"
 
 UPDATE_INTERVAL = 600  # 10 minute (safe pt rate-limit)
 
@@ -60,46 +59,10 @@ def find_text(root: ET.Element, xpath: str) -> str | None:
         return el.text.strip()
     return None
 
-def iter_candidates(root: ET.Element, needles: list[str]):
-    needles = [n.lower() for n in needles]
-    out = []
-    for el in root.iter():
-        tag = (el.tag or "").lower()
-        txt = (el.text or "").strip()
-        # tag matches
-        if any(n in tag for n in needles):
-            out.append((el.tag, txt, dict(el.attrib)))
-            continue
-        # attribute key matches
-        for k, v in el.attrib.items():
-            if any(n in k.lower() for n in needles):
-                out.append((el.tag, txt, dict(el.attrib)))
-                break
-    return out
-
-def format_duration(seconds: int) -> str:
-    if seconds < 0:
-        seconds = 0
-    days = seconds // 86400
-    seconds %= 86400
-    hours = seconds // 3600
-    seconds %= 3600
-    minutes = seconds // 60
-    if days > 0:
-        return f"{days}d {hours}h {minutes}m"
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    return f"{minutes}m"
-
-def format_money(value: float) -> str:
-    abs_v = abs(value)
-    if abs_v >= 1_000_000_000:
-        return f"{value/1_000_000_000:.2f}B €"
-    if abs_v >= 1_000_000:
-        return f"{value/1_000_000:.2f}M €"
-    if abs_v >= 1_000:
-        return f"{value/1_000:.1f}K €"
-    return f"{value:.0f} €"
+def format_money_exact(value: float) -> str:
+    v = int(round(value))
+    s = f"{v:,}".replace(",", ".")  # 52619 -> 52.619
+    return f"{s} €"
 
 # ====== EXTRACTORS ======
 def get_map_title() -> str | None:
@@ -111,71 +74,46 @@ def get_map_title() -> str | None:
     return mid
 
 def get_economy_money() -> float | None:
-    # 1) cel mai sigur: careerSavegame -> statistics/money
+    root = parse_xml(download_bytes(CAREER_URL))
+    txt = find_text(root, ".//statistics/money")
+    if not txt:
+        return None
     try:
-        root = parse_xml(download_bytes(CAREER_URL))
-        txt = find_text(root, ".//statistics/money") or find_text(root, ".//money")
-        if txt:
-            return float(txt)
-    except Exception as e:
-        print("Economy read from careerSavegame failed:", e)
+        return float(txt)
+    except:
+        return None
 
-    # 2) fallback: economy file (dacă are alt format)
-    try:
-        root2 = parse_xml(download_bytes(ECONOMY_URL))
-        # încearcă orice tag numit money
-        for el in root2.iter():
-            if (el.tag or "").lower() == "money":
-                t = (el.text or "").strip()
-                if t:
-                    return float(t)
-        # sau orice tag care conține "money"
-        cands = iter_candidates(root2, ["money", "cash", "balance"])
-        for tag, txt, attrib in cands:
-            if txt:
-                try:
-                    return float(txt)
-                except:
-                    pass
-    except Exception as e:
-        print("Economy read from economy file failed:", e)
-
-    return None
-
-def get_uptime_seconds() -> int | None:
+def get_server_time_hhmm() -> tuple[int, int] | None:
+    """
+    Ia ora din dedicated-server-stats.xml:
+    <Server ... dayTime="50725127" />
+    dayTime e în milisecunde. Convertim în HH:MM (mod 24h).
+    """
     root = parse_xml(download_bytes(STATS_URL))
 
-    # căutăm în tag-uri/atribute care pot conține uptime
-    cands = iter_candidates(root, ["uptime", "running", "online", "started", "starttime", "runtime"])
-    # DEBUG: afișăm în logs primele candidate
-    if cands:
-        print("Uptime candidates (first 10):")
-        for i, (tag, txt, attrib) in enumerate(cands[:10], start=1):
-            print(i, tag, "text=", txt[:50], "attrib=", attrib)
+    # caută elementul Server (poate fi <Server> sau alt caz)
+    server_el = None
+    for el in root.iter():
+        if (el.tag or "").lower() == "server":
+            server_el = el
+            break
 
-    # 1) dacă găsim un NUMĂR direct (secunde/minute)
-    for tag, txt, attrib in cands:
-        # text numeric?
-        if txt:
-            try:
-                val = float(txt)
-                # heuristics: dacă e mare, probabil secunde; dacă e mic, poate minute
-                if val > 10_000:  # ex secunde
-                    return int(val)
-                if 0 <= val <= 10_000:
-                    # presupunem secunde și aici (mai sigur decât minute)
-                    return int(val)
-            except:
-                pass
-        # attribute numeric?
-        for k, v in attrib.items():
-            if "uptime" in k.lower() or "running" in k.lower() or "runtime" in k.lower():
-                try:
-                    return int(float(v))
-                except:
-                    pass
+    if server_el is None:
+        return None
 
-    return None
+    day_time = server_el.attrib.get("dayTime") or server_el.attrib.get("daytime")
+    if not day_time:
+        return None
+
+    try:
+        ms = int(float(day_time))
+    except:
+        return None
+
+    total_minutes = (ms // 1000) // 60
+    hh = (total_minutes // 60) % 24
+    mm = total_minutes % 60
+    return int(hh), int(mm)
 
 # ====== UPDATE LOOP ======
 async def do_update():
@@ -186,28 +124,28 @@ async def do_update():
     except Exception as e:
         print("Map update error:", e)
 
-    # UPTIME
+    # SERVER TIME (din dayTime)
     try:
-        up = get_uptime_seconds()
-        if up is None:
-            # nu mai punem unknown “urât”, punem online + te uiți în logs la candidates
-            await safe_rename(UPTIME_CHANNEL_ID, "⏱️ Uptime: ONLINE")
+        t = get_server_time_hhmm()
+        if t is None:
+            await safe_rename(TIME_CHANNEL_ID, "⏰ --:--")
         else:
-            await safe_rename(UPTIME_CHANNEL_ID, f"⏱️ Uptime: {format_duration(up)}")
+            hh, mm = t
+            await safe_rename(TIME_CHANNEL_ID, f"⏰ {hh:02d}:{mm:02d}")
     except Exception as e:
-        print("Uptime update error:", e)
-        await safe_rename(UPTIME_CHANNEL_ID, "⏱️ Uptime: ONLINE")
+        print("Time update error:", e)
+        await safe_rename(TIME_CHANNEL_ID, "⏰ --:--")
 
-    # ECONOMY
+    # ECONOMY (exact)
     try:
         money = get_economy_money()
         if money is None:
-            await safe_rename(ECONOMY_CHANNEL_ID, "💰 Economy: unavailable")
+            await safe_rename(ECONOMY_CHANNEL_ID, "💰 -- €")
         else:
-            await safe_rename(ECONOMY_CHANNEL_ID, f"💰 Economy: {format_money(money)}")
+            await safe_rename(ECONOMY_CHANNEL_ID, f"💰 {format_money_exact(money)}")
     except Exception as e:
         print("Economy update error:", e)
-        await safe_rename(ECONOMY_CHANNEL_ID, "💰 Economy: unavailable")
+        await safe_rename(ECONOMY_CHANNEL_ID, "💰 -- €")
 
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def loop_update():
@@ -216,7 +154,7 @@ async def loop_update():
 @client.event
 async def on_ready():
     print(f"Logged in ca {client.user}")
-    await do_update()
+    await do_update()  # update instant
     if not loop_update.is_running():
         loop_update.start()
 
