@@ -33,7 +33,9 @@ def fetch_xml(url):
 
 def clean_name(name, max_len=95):
     name = re.sub(r"\s+", " ", name).strip()
-    return name if len(name) <= max_len else name[:max_len - 1] + "…"
+    if len(name) > max_len:
+        return name[:max_len - 1] + "…"
+    return name
 
 async def rename(channel_id, name):
     ch = client.get_channel(channel_id)
@@ -47,7 +49,7 @@ async def rename(channel_id, name):
 def get_map_name():
     root = fetch_xml(CAREER_URL)
     el = root.find(".//mapTitle")
-    return el.text.strip() if el is not None else "Unknown Map"
+    return el.text.strip() if el is not None else "unknown map"
 
 def get_money():
     root = fetch_xml(CAREER_URL)
@@ -73,17 +75,29 @@ def get_game_time():
 # ================= UPDATE =================
 async def update_channels():
     # MAP
-    await rename(MAP_CHANNEL_ID, f"🌾 {get_map_name()}")
+    await rename(
+        MAP_CHANNEL_ID,
+        f"🌾 ᴛʜᴇ {get_map_name().lower()}"
+    )
 
-    # TIME (etichetă schimbată)
-    await rename(TIME_CHANNEL_ID, f"⏰ Time {get_game_time()}")
+    # TIME
+    await rename(
+        TIME_CHANNEL_ID,
+        f"⏰ ᴛɪᴍᴇ {get_game_time()}"
+    )
 
     # ECONOMY
     money = get_money()
     if money is not None:
-        await rename(ECONOMY_CHANNEL_ID, f"💰 Economy {format_money(money)}")
+        await rename(
+            ECONOMY_CHANNEL_ID,
+            f"💰 ᴇᴄᴏɴᴏᴍʏ {format_money(money)}"
+        )
     else:
-        await rename(ECONOMY_CHANNEL_ID, "💰 Economy -- €")
+        await rename(
+            ECONOMY_CHANNEL_ID,
+            "💰 ᴇᴄᴏɴᴏᴍʏ -- €"
+        )
 
 @tasks.loop(seconds=UPDATE_INTERVAL)
 async def updater():
