@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import asyncio
 import requests
 import xml.etree.ElementTree as ET
 
@@ -8,29 +9,30 @@ import discord
 from discord.ext import tasks
 
 # ================= CONFIG =================
-TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Railway env
+TOKEN = os.environ.get("DISCORD_TOKEN")  # pune tokenul în Railway Variables
 
-# Voice channels (rename)
+# VOICE channels (rename)
 MAP_CHANNEL_ID = 1466767151267446953
 ECONOMY_CHANNEL_ID = 1467532195143880775
 TIME_CHANNEL_ID = 1467532233601585448
 PLAYERS_CHANNEL_ID = 1466873332036272352
 
-# Text channels (messages)
+# TEXT channels (messages)
 STATUS_TEXT_CHANNEL_ID = 1463573433240784948
 JOINLEAVE_TEXT_CHANNEL_ID = 1463864786088624219
 
-MAX_SLOTS_FALLBACK = 6
-
+# Nitrado feed
 CODE = "0c77cbd246bbdae1ad09d6ef78780e78"
 BASE_URL = "http://85.190.163.102:10710/feed"
 STATS_URL = f"{BASE_URL}/dedicated-server-stats.xml?code={CODE}"
 CAREER_URL = f"{BASE_URL}/dedicated-server-savegame.html?code={CODE}&file=careerSavegame"
+MAX_SLOTS_FALLBACK = 6
 
+# Intervale
 VOICE_UPDATE_INTERVAL = 300  # 5 minute (NU schimbăm)
 EVENT_POLL_INTERVAL = 30     # 30 sec (doar detect + post text)
 
-# ===== MESAJELE TALE (FIX) =====
+# Mesajele tale (FIX)
 STATUS_ON_MESSAGE = "🟢🌾 Server ONLINE — porțile fermei sunt deschise. Spor la treabă!"
 STATUS_OFF_MESSAGE = "🔴🛠️ Server OFFLINE — pauză tehnică / restart. Revenim imediat."
 
@@ -46,31 +48,65 @@ last_server_online: bool | None = None
 last_online_names: set[str] = set()
 session_start: dict[str, float] = {}  # name -> time.monotonic()
 
-# ================= HELPERS =================
-def fetch_xml(url: str, timeout: int = 20) -> ET.Element:
-    r = requests.get(url, timeout=timeout)
-    r.raise_for_status()
-    return ET.fromstring(r.content)
+# Anti rate-limit rename
+_last_edit = {}  # channel_id -> monotonic time
 
+# ================= HELPERS =================
 def clean_name(name: str, max_len: int = 95) -> str:
     name = re.sub(r"\s+", " ", name).strip()
     if len(name) > max_len:
         name = name[:max_len - 1] + "…"
     return name
 
-async def rename_channel(channel_id: int, new_name: str) -> None:
+def fetch_xml(url: str, timeout: int = 20) -> ET.Element:
+    r = requests.get(url, timeout=timeout)
+    r.raise_for_status()
+    return ET.fromstring(r.content)
+
+async def get_channel_safe(channel_id: int):
+    # cache first, then fetch (fix pentru “nu scrie nimic”)
     ch = client.get_channel(channel_id)
     if ch is None:
-        return
-    new_name = clean_name(new_name)
-    if ch.name != new_name:
-        await ch.edit(name=new_name)
+        ch = await client.fetch_channel(channel_id)
+    return ch
 
 async def send_text(channel_id: int, message: str) -> None:
-    ch = client.get_channel(channel_id)
-    if ch is None:
+    try:
+        ch = await get_channel_safe(channel_id)
+        await ch.send(message)
+        print(f"[TEXT] Sent to {channel_id}: {message}")
+    except Exception as e:
+        print("send_text error:", channel_id, e)
+
+async def rename_channel(channel_id: int, new_name: str, cooldown_sec: int = 360) -> None:
+    """
+    Rename stabil:
+    - cooldown per canal ca să nu lovești 429
+    - mic delay între editări
+    """
+    try:
+        ch = await get_channel_safe(channel_id)
+    except Exception as e:
+        print("rename fetch error:", channel_id, e)
         return
-    await ch.send(message)
+
+    new_name = clean_name(new_name)
+
+    now = time.monotonic()
+    last = _last_edit.get(channel_id, 0)
+    if now - last < cooldown_sec:
+        return
+
+    if getattr(ch, "name", None) == new_name:
+        return
+
+    try:
+        await ch.edit(name=new_name)
+        _last_edit[channel_id] = now
+        print(f"[VOICE] Renamed {channel_id} -> {new_name}")
+        await asyncio.sleep(2)  # nu trimite PATCH-uri back-to-back
+    except Exception as e:
+        print("rename error:", channel_id, e)
 
 def to_small_caps(text: str) -> str:
     mapping = {
@@ -79,7 +115,7 @@ def to_small_caps(text: str) -> str:
         "q":"ǫ","r":"ʀ","s":"ꜱ","t":"ᴛ","u":"ᴜ","v":"ᴠ","w":"ᴡ","x":"x",
         "y":"ʏ","z":"ᴢ"
     }
-    return "".join(mapping.get(c, c) for c in text.lower())
+    return "".join(mapping.get(c, c) for c in (text or "").lower())
 
 def format_money(value: float) -> str:
     v = int(round(value))
@@ -102,7 +138,7 @@ def is_server_online() -> bool:
     except:
         return False
 
-# ================= DATA (VOICE) =================
+# ================= DATA for VOICE =================
 def get_map_title() -> str:
     root = fetch_xml(CAREER_URL)
     el = root.find(".//mapTitle")
@@ -138,11 +174,6 @@ def get_game_time() -> str:
     return "--:--"
 
 def get_players_online_and_slots() -> tuple[int, int]:
-    """
-    Nitrado FS25: <player isUsed="true/false" ...> = slot
-    online = count isUsed="true"
-    slots = count <player>
-    """
     root = fetch_xml(STATS_URL)
     players = [el for el in root.iter() if (el.tag or "").lower() == "player"]
     if not players:
@@ -153,14 +184,10 @@ def get_players_online_and_slots() -> tuple[int, int]:
         online = slots
     return online, slots
 
-# ================= EVENT DATA (NAMES) =================
+# ================= PLAYER NAMES for EVENTS =================
 def extract_online_names_from_stats() -> set[str]:
     """
-    Extrage numele jucătorilor online din <player ... isUsed="true" ...>
-    Best-effort:
-      - atribute: name/userName/username/playerName/nickname
-      - altfel text interior
-    Dacă XML-ul tău nu conține nume, o să iasă "Player".
+    Best effort. Dacă XML-ul tău are nume în atribute sau text, le prindem.
     """
     root = fetch_xml(STATS_URL)
     names = set()
@@ -190,7 +217,7 @@ def extract_online_names_from_stats() -> set[str]:
 
     return names
 
-# ================= VOICE UPDATER (NU schimbăm 300s) =================
+# ================= VOICE UPDATER =================
 async def update_voice_channels():
     if not is_server_online():
         return
@@ -212,16 +239,19 @@ async def update_voice_channels():
 async def voice_updater():
     await update_voice_channels()
 
-# ================= EVENT POLLER (30s, nu afectează voice) =================
+# ================= EVENT POLLER =================
 @tasks.loop(seconds=EVENT_POLL_INTERVAL)
 async def event_poller():
     global last_server_online, last_online_names
 
+    print("[EVENT] tick")
+
     online_now = is_server_online()
 
-    # ONLINE/OFFLINE: trimitem doar când se schimbă
+    # status change
     if last_server_online is None:
         last_server_online = online_now
+        # nu spam la start
     elif online_now != last_server_online:
         last_server_online = online_now
         if online_now:
@@ -229,7 +259,7 @@ async def event_poller():
         else:
             await send_text(STATUS_TEXT_CHANNEL_ID, STATUS_OFF_MESSAGE)
 
-            # Dacă serverul a picat, considerăm că toți au ieșit
+            # considerăm că toți au ieșit dacă serverul a căzut
             now = time.monotonic()
             for name in sorted(last_online_names):
                 start = session_start.pop(name, None)
@@ -240,12 +270,16 @@ async def event_poller():
             last_online_names = set()
             return
 
-    # dacă serverul e offline, nu verificăm jucători
     if not online_now:
         return
 
-    # JOIN/LEAVE
-    current = extract_online_names_from_stats()
+    # join/leave by names
+    try:
+        current = extract_online_names_from_stats()
+    except Exception as e:
+        print("extract_online_names error:", e)
+        return
+
     joined = current - last_online_names
     left = last_online_names - current
     now = time.monotonic()
@@ -264,12 +298,11 @@ async def event_poller():
 
 @client.event
 async def on_ready():
+    global last_server_online, last_online_names
     print(f"Logged in as {client.user}")
 
-    # init: setăm statusul inițial și jucătorii curenți fără spam
-    global last_server_online, last_online_names
+    # init state (fără spam)
     last_server_online = is_server_online()
-
     if last_server_online:
         try:
             current = extract_online_names_from_stats()
@@ -280,13 +313,15 @@ async def on_ready():
         except:
             pass
 
-    # rulează imediat update-ul voice o dată
-    await update_voice_channels()
-
+    # pornește task-urile
     if not voice_updater.is_running():
         voice_updater.start()
-
     if not event_poller.is_running():
         event_poller.start()
+
+    # NU facem update instant aici (evităm burst + 429)
+
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN lipsește din env vars (Railway Variables).")
 
 client.run(TOKEN)
