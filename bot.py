@@ -29,10 +29,10 @@ CAREER_URL = f"{BASE_URL}/dedicated-server-savegame.html?code={CODE}&file=career
 MAX_SLOTS_FALLBACK = 6
 
 # Intervale
-VOICE_UPDATE_INTERVAL = 300  # 5 minute (NU schimbăm)
+VOICE_UPDATE_INTERVAL = 300  # 5 minute (ramane)
 EVENT_POLL_INTERVAL = 30     # 30 sec (doar detect + post text)
 
-# Mesajele tale (FIX)
+# Mesajele TALE (fix)
 STATUS_ON_MESSAGE = "🟢🌾 Server ONLINE — porțile fermei sunt deschise. Spor la treabă!"
 STATUS_OFF_MESSAGE = "🔴🛠️ Server OFFLINE — pauză tehnică / restart. Revenim imediat."
 
@@ -50,6 +50,10 @@ session_start: dict[str, float] = {}  # name -> time.monotonic()
 
 # Anti rate-limit rename
 _last_edit = {}  # channel_id -> monotonic time
+
+# Heartbeat state (Farm Sim Bot style)
+_last_hb_value = None
+_last_hb_change_at = None
 
 # ================= HELPERS =================
 def clean_name(name: str, max_len: int = 95) -> str:
@@ -81,7 +85,7 @@ async def send_text(channel_id: int, message: str) -> None:
 async def rename_channel(channel_id: int, new_name: str, cooldown_sec: int = 360) -> None:
     """
     Rename stabil:
-    - cooldown per canal ca să nu lovești 429
+    - cooldown per canal ca să reducem 429
     - mic delay între editări
     """
     try:
@@ -130,13 +134,57 @@ def format_duration(seconds: int) -> str:
         return f"{h} ore si {m} minute"
     return f"{m} minute"
 
-# ================= SERVER ONLINE/OFFLINE =================
-def is_server_online() -> bool:
+# ================= SERVER ONLINE/OFFLINE (Farm Sim Bot style) =================
+def _read_server_heartbeat() -> int | None:
+    """
+    Heartbeat care se schimbă când serverul chiar rulează.
+    Prioritate:
+      1) uptime (dacă există în <server ...>)
+      2) dayTime (aproape mereu există)
+    """
     try:
-        r = requests.get(STATS_URL, timeout=10)
-        return r.status_code == 200 and len(r.content) > 20
+        root = fetch_xml(STATS_URL, timeout=10)
+        for el in root.iter():
+            if (el.tag or "").lower() == "server":
+                up = el.attrib.get("uptime") or el.attrib.get("upTime") or el.attrib.get("up_time")
+                if up is not None:
+                    return int(float(up))
+
+                dt = el.attrib.get("dayTime") or el.attrib.get("daytime")
+                if dt is not None:
+                    return int(float(dt))
+        return None
     except:
+        return None
+
+def is_server_online(stale_seconds: int = 90) -> bool:
+    """
+    ONLINE dacă heartbeat-ul s-a schimbat în ultimele stale_seconds.
+    OFFLINE dacă heartbeat lipsește / nu se schimbă suficient timp.
+    """
+    global _last_hb_value, _last_hb_change_at
+
+    hb = _read_server_heartbeat()
+    now = time.monotonic()
+
+    if hb is None:
         return False
+
+    if _last_hb_value is None:
+        _last_hb_value = hb
+        _last_hb_change_at = now
+        return True
+
+    if hb != _last_hb_value:
+        _last_hb_value = hb
+        _last_hb_change_at = now
+        return True
+
+    if _last_hb_change_at is None:
+        _last_hb_change_at = now
+        return True
+
+    return (now - _last_hb_change_at) <= stale_seconds
 
 # ================= DATA for VOICE =================
 def get_map_title() -> str:
@@ -187,7 +235,8 @@ def get_players_online_and_slots() -> tuple[int, int]:
 # ================= PLAYER NAMES for EVENTS =================
 def extract_online_names_from_stats() -> set[str]:
     """
-    Best effort. Dacă XML-ul tău are nume în atribute sau text, le prindem.
+    Best-effort. Dacă XML-ul are nume în atribute sau text, le prindem.
+    Dacă nu, o să apară "Player".
     """
     root = fetch_xml(STATS_URL)
     names = set()
@@ -244,22 +293,20 @@ async def voice_updater():
 async def event_poller():
     global last_server_online, last_online_names
 
-    print("[EVENT] tick")
-
     online_now = is_server_online()
 
-    # status change
+    # ONLINE/OFFLINE: trimite doar la schimbare
     if last_server_online is None:
         last_server_online = online_now
-        # nu spam la start
     elif online_now != last_server_online:
         last_server_online = online_now
+
         if online_now:
             await send_text(STATUS_TEXT_CHANNEL_ID, STATUS_ON_MESSAGE)
         else:
             await send_text(STATUS_TEXT_CHANNEL_ID, STATUS_OFF_MESSAGE)
 
-            # considerăm că toți au ieșit dacă serverul a căzut
+            # dacă serverul a căzut, închidem sesiunile curente
             now = time.monotonic()
             for name in sorted(last_online_names):
                 start = session_start.pop(name, None)
@@ -273,7 +320,7 @@ async def event_poller():
     if not online_now:
         return
 
-    # join/leave by names
+    # JOIN/LEAVE
     try:
         current = extract_online_names_from_stats()
     except Exception as e:
@@ -301,7 +348,7 @@ async def on_ready():
     global last_server_online, last_online_names
     print(f"Logged in as {client.user}")
 
-    # init state (fără spam)
+    # init state (fără spam la start)
     last_server_online = is_server_online()
     if last_server_online:
         try:
@@ -318,8 +365,6 @@ async def on_ready():
         voice_updater.start()
     if not event_poller.is_running():
         event_poller.start()
-
-    # NU facem update instant aici (evităm burst + 429)
 
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN lipsește din env vars (Railway Variables).")
