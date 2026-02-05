@@ -33,10 +33,10 @@ VOICE_UPDATE_INTERVAL = 300  # 5 minute (ramane)
 EVENT_POLL_INTERVAL = 30     # 30 sec (doar detect + post text)
 
 # Mesajele TALE (fix)
-STATUS_ON_MESSAGE = "🟢🌾 Server ONLINE — porțile fermei sunt deschise. Spor la treabă!"
-STATUS_OFF_MESSAGE = "🔴🛠️ Server OFFLINE — pauză tehnică / restart. Revenim imediat."
+STATUS_ON_MESSAGE = "🌾 Server ONLINE — porțile fermei sunt deschise. Spor la treabă!"
+STATUS_OFF_MESSAGE = "🛠️ Server OFFLINE — pauză tehnică / restart. Revenim imediat."
 
-JOIN_MESSAGE = "🌱 **{X}** A intrat pe server, Și ajuns la fermă — spor la semănat și recoltat! 🚜"
+JOIN_MESSAGE = "🌱 **{X}** A intrat pe server, Și a început treaba — spor la semănat și recoltat! 🚜"
 LEAVE_MESSAGE = "🚜 **{X}** a băgat utilajele la garaj, Și a părăsit serverul. Durata sesiunii: **{DURATA}** 🌾"
 
 # ================= DISCORD =================
